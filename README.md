@@ -36,6 +36,3 @@ $ python
         db='app',
     )
 ```
-
-MySQL is currently reporting "Got an error reading communication packets" on statement execution,
-and I don't quite understand the reason XDD

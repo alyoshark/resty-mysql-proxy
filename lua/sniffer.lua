@@ -690,19 +690,30 @@ function _M.peep()
     while true do
         header, packet, typ, err = from_cli(cli)
         if err then
-            print("Closing connection on client receiving empty - ", err)
             break
         end
         send(svr, header .. packet)
 
-        header, packet, typ, err = from_svr(svr)
-        if err then
-            print("Closing connection on server receiving empty - ", err)
-            break
+        local eof_cnt = 0  -- 0 => init; 1 => header; 2 => finished!
+        while eof_cnt < 2 do
+            header, packet, typ, err = from_svr(svr)
+            if typ == 'OK' then
+                send(cli, header .. packet)
+                break
+            elseif typ == 'EOF' then
+                send(cli, header .. packet)
+                eof_cnt = eof_cnt + 1
+            else
+                if header == nil then
+                    svr.sock:setkeepalive(1000 * 100)
+                    break
+                end
+                send(cli, header .. packet)
+            end
         end
-        send(cli, header .. packet)
-        svr.sock:setkeepalive(1000 * 100)
     end
+
+    --svr.sock:setkeepalive(1000 * 100)
 end
 
 
