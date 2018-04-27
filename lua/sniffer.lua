@@ -48,8 +48,7 @@ local SERVER_MORE_RESULTS_EXISTS = 8
 
 -- xch debugger:
 local function print(...)
-    local args = {...} or {}
-    ngx.log(ngx.ERR, unpack(args))
+    ngx.log(ngx.ERR, ...)
 end
 
 
@@ -128,6 +127,11 @@ end
 
 local function receive(wrapper, len)
     return wrapper.sock:receive(len)
+end
+
+
+local function keepalive(wrapper, ...)
+    return wrapper.sock:setkeepalive(...)
 end
 
 
@@ -467,7 +471,7 @@ local function from_svr(svr)
 
     local len, pos = _get_byte3(header, 1)
 
-    --print("packet length: ", len)
+    --print("server packet length: ", len)
 
     if len == 0 then
         return nil, nil, nil, "empty packet"
@@ -589,7 +593,7 @@ local function from_cli(cli)
 
     local len, pos = _get_byte3(header, 1)
 
-    --print("packet length: ", len)
+    --print("client packet length: ", len)
 
     if len == 0 then
         return nil, nil, nil, "empty packet"
@@ -655,9 +659,9 @@ local function parse_auth(packet)
 end
 
 
-local function new_cli(dss)
+local function new_cli(sock)
     -- downstream socket
-    return setmetatable({ sock = dss, _max_packet_size = 1024 * 1024 }, svr_mt)
+    return setmetatable({ sock = sock, _max_packet_size = 1024 * 1024 }, cli_mt)
 end
 -- }} cli
 
@@ -666,6 +670,7 @@ local _M = {}
 
 
 function _M.peep()
+    ngx.flush(true)
     local svr = new_svr()
     local dss = assert(ngx.req.socket(true)) -- downstream socket
     local cli = new_cli(dss)
@@ -673,18 +678,31 @@ function _M.peep()
     local header, packet, typ, err
 
     header, packet, typ, err = init_svr(svr)
-    send(cli, header)
-    send(cli, packet)
+    send(cli, header .. packet)
 
     header, packet, typ, err = from_cli(cli)
     username, token, database = parse_auth(packet)
-    send(svr, header)
-    send(svr, packet)
+    send(svr, header .. packet)
 
     header, packet, typ, err = from_svr(svr)
-    send(cli, header)
-    send(cli, packet)
-    svr.state = STATE_CONNECTED
+    send(cli, header .. packet)
+
+    while true do
+        header, packet, typ, err = from_cli(cli)
+        if err then
+            print("Closing connection on client receiving empty - ", err)
+            break
+        end
+        send(svr, header .. packet)
+
+        header, packet, typ, err = from_svr(svr)
+        if err then
+            print("Closing connection on server receiving empty - ", err)
+            break
+        end
+        send(cli, header .. packet)
+        svr.sock:setkeepalive(1000 * 100)
+    end
 end
 
 

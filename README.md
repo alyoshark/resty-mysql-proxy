@@ -37,4 +37,5 @@ $ python
     )
 ```
 
-MySQL is currently reporting "Got an error reading communication packets" and I don't have a clue why this is the case
+MySQL is currently reporting "Got an error reading communication packets" on statement execution,
+and I don't quite understand the reason XDD
