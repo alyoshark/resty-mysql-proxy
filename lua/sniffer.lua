@@ -55,56 +55,6 @@ end
 -- 16MB - 1, the default max allowed packet size used by libmysqlclient
 local FULL_PACKET_SIZE = 16777215
 
--- the following charset map is generated from the following mysql query:
---   SELECT CHARACTER_SET_NAME, ID
---   FROM information_schema.collations
---   WHERE IS_DEFAULT = 'Yes' ORDER BY id;
-local CHARSET_MAP = {
-    _default  = 0,
-    big5      = 1,
-    dec8      = 3,
-    cp850     = 4,
-    hp8       = 6,
-    koi8r     = 7,
-    latin1    = 8,
-    latin2    = 9,
-    swe7      = 10,
-    ascii     = 11,
-    ujis      = 12,
-    sjis      = 13,
-    hebrew    = 16,
-    tis620    = 18,
-    euckr     = 19,
-    koi8u     = 22,
-    gb2312    = 24,
-    greek     = 25,
-    cp1250    = 26,
-    gbk       = 28,
-    latin5    = 30,
-    armscii8  = 32,
-    utf8      = 33,
-    ucs2      = 35,
-    cp866     = 36,
-    keybcs2   = 37,
-    macce     = 38,
-    macroman  = 39,
-    cp852     = 40,
-    latin7    = 41,
-    utf8mb4   = 45,
-    cp1251    = 51,
-    utf16     = 54,
-    utf16le   = 56,
-    cp1256    = 57,
-    cp1257    = 59,
-    utf32     = 60,
-    binary    = 63,
-    geostd8   = 92,
-    cp932     = 95,
-    eucjpms   = 97,
-    gb18030   = 248
-}
-
-
 -- mysql field value type converters
 local converters = new_tab(0, 9)
 
@@ -423,7 +373,6 @@ local function _parse_row_data_packet(data, cols, compact)
 
         if compact then
             row[i] = value
-
         else
             row[name] = value
         end
@@ -439,23 +388,6 @@ local _svr = { _VERSION = '0.01' }
 local svr_mt = { __index = _svr }
 
 
-local function to_svr(svr, req, size)
-    local sock = svr.sock
-
-    svr.packet_no = svr.packet_no + 1
-
-    --print("packet no: ", svr.packet_no)
-
-    local packet = _set_byte3(size) .. strchar(band(svr.packet_no, 255)) .. req
-
-    --print("sending packet: ", _dump(packet))
-
-    --print("sending packet... of size " .. #packet)
-
-    return sock:send(packet)
-end
-
-
 local function from_svr(svr)
     -- return: header, data, typ, err
 
@@ -467,12 +399,7 @@ local function from_svr(svr)
         return nil, nil, nil, "failed to receive packet header: " .. err
     end
 
-    --print("packet header: ", _dump(data))
-
     local len, pos = _get_byte3(header, 1)
-
-    --print("server packet length: ", len)
-
     if len == 0 then
         return nil, nil, nil, "empty packet"
     end
@@ -482,24 +409,13 @@ local function from_svr(svr)
     end
 
     local num = strbyte(header, pos)
-
-    --print("recv packet: packet no: ", num)
-
-    svr.packet_no = num
-
     data, err = sock:receive(len)
-
-    --print("receive returned")
 
     if not data then
         return nil, nil, nil, "failed to read packet content: " .. err
     end
 
-    --print("packet content: ", _dump(data))
-    --print("packet content (ascii): ", data)
-
     local field_count = strbyte(data, 1)
-
     local typ
     if field_count == 0x00 then
         typ = "OK"
@@ -515,52 +431,17 @@ local function from_svr(svr)
 end
 
 
-local function prep_svr(svr, packet)
-    svr.protocol_ver = strbyte(packet)
-
-    local server_ver, pos = _from_cstring(packet, 2)
-    svr._server_ver = server_ver
-
-    -- seems not used?
-    local thread_id, pos = _get_byte4(packet, pos)
-
-    local scramble = sub(packet, pos, pos + 8 - 1)
-
-    pos = pos + 9  -- skip filler
-    local capabilities
-    capabilities, pos = _get_byte2(packet, pos)
-
-    svr._server_lang = strbyte(packet, pos)
-    pos = pos + 1
-
-    svr._server_status, pos = _get_byte2(packet, pos)
-
-    local more_capabilities
-    more_capabilities, pos = _get_byte2(packet, pos)
-    svr.capabilities = bor(capabilities, lshift(more_capabilities, 16))
-
-    local len = 21 - 8 - 1
-    pos = pos + 1 + 10
-    local scramble_part2 = sub(packet, pos, pos + len - 1)
-    svr.scramble = scramble .. scramble_part2
-
-    svr.client_flags = 0x3f7cf;
-end
-
-
 local function init_svr(svr)
     local sock = svr.sock
     if not sock then
         return nil, "svr not initialized"
     end
-    svr._max_packet_size = 1024 * 1024 -- hardcode it to 1MB
 
+    svr._max_packet_size = 1024 * 1024 -- hardcode it to 1MB
     local mysql_ip = os.getenv("MYSQL_PORT_3306_TCP_ADDR")
     sock:connect(mysql_ip, 3306)
 
     local header, packet, typ, err = from_svr(svr)
-    prep_svr(svr, packet)
-
     return header, packet
 end
 
@@ -586,76 +467,31 @@ local function from_cli(cli)
 
     header, err = sock:receive(4) -- packet header (4th byte is seq)
     if not header then
-        return nil, nil, nil, "failed to receive packet header: " .. err
+        return nil, nil, "failed to receive packet header: " .. err
     end
 
-    --print("packet header: ", _dump(header))
-
     local len, pos = _get_byte3(header, 1)
-
-    --print("client packet length: ", len)
-
     if len == 0 then
-        return nil, nil, nil, "empty packet"
+        return nil, nil, "empty packet"
     end
 
     if len > cli._max_packet_size then
-        return nil, nil, nil, "packet size too big: " .. len
+        return nil, nil, "packet size too big: " .. len
     end
-
-    local num = strbyte(header, pos)
-
-    --print("recv packet: packet no: ", num)
-
-    cli.packet_no = num
 
     data, err = sock:receive(len)
-
-    --print("receive returned")
-
     if not data then
-        return nil, nil, nil, "failed to read packet content: " .. err
+        return nil, nil, "failed to read packet content: " .. err
     end
 
-    --print("packet content: ", _dump(data))
-    --print("packet content (ascii): ", data)
-
-    local field_count = strbyte(data, 1)
-
-    local typ
-    if field_count == 0x00 then
-        typ = "OK"
-    elseif field_count == 0xff then
-        typ = "ERR"
-    elseif field_count == 0xfe then
-        typ = "EOF"
-    else
-        typ = "DATA"
-    end
-
-    return header, data, typ, nil
+    return header, data, nil
 end
 
 
-local function parse_auth(packet)
-    local lstripped
-
-    lstripped= strsub(packet, 33)
-    pos = strfind(lstripped, "\0")
-    local username = strsub(lstripped, 1, pos)
-    --print("xch debug - username: ", username)
-
-    lstripped = strsub(lstripped, pos + 1)
-    len = strbyte(lstripped, 1)
-    token = strsub(lstripped, 2, 2 + len)
-    --print("xch debug - token: ", token)
-
-    lstripped = strsub(lstripped, len + 2)
-    pos = strfind(lstripped, "\0")
-    local database = strsub(lstripped, 1, pos)
-    --print("xch debug - database: ", database)
-
-    return username, token, database
+local function get_username(cli, packet)
+    local lstripped = strsub(packet, 33)
+    local pos = strfind(lstripped, "\0")
+    cli.username = strsub(lstripped, 1, pos)
 end
 
 
@@ -666,33 +502,53 @@ end
 -- }} cli
 
 
-local _M = {}
-
-
-function _M.peep()
-    ngx.flush(true)
+-- proxy {{
+local function init_proxy()
     local svr = new_svr()
     local dss = assert(ngx.req.socket(true)) -- downstream socket
     local cli = new_cli(dss)
 
-    local header, packet, typ, err
-
-    header, packet, typ, err = init_svr(svr)
+    local header, packet, typ, err = init_svr(svr)
     send(cli, header .. packet)
 
     header, packet, typ, err = from_cli(cli)
-    username, token, database = parse_auth(packet)
+    get_username(cli, packet)
     send(svr, header .. packet)
 
     header, packet, typ, err = from_svr(svr)
     send(cli, header .. packet)
+    return svr, cli
+end
+
+
+local function query(cli, svr)
+    local header, packet, err = from_cli(cli)
+    if err then return err end
+
+    local qry = strsub(packet, 1, #packet)
+    local com = strbyte(packet)
+    if com == COM_QUIT then
+        send(svr, header .. packet)
+        cli.qry = nil
+        return 'quit'
+    end
+
+    cli.qry = qry
+    send(svr, header .. packet)
+end
+-- }} proxy
+
+
+local _M = {}
+
+
+function _M.peep()
+    local svr, cli = init_proxy()
+    local header, packet, typ, err
 
     while true do
-        header, packet, typ, err = from_cli(cli)
-        if err then
-            break
-        end
-        send(svr, header .. packet)
+        err = query(cli, svr)
+        if err then break end
 
         local eof_cnt = 0  -- 0 => init; 1 => header; 2 => finished!
         while eof_cnt < 2 do
@@ -712,8 +568,6 @@ function _M.peep()
             end
         end
     end
-
-    --svr.sock:setkeepalive(1000 * 100)
 end
 
 
