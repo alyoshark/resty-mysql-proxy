@@ -14,9 +14,7 @@ local bor = bit.bor
 local lshift = bit.lshift
 local rshift = bit.rshift
 local tohex = bit.tohex
-local sha1 = ngx.sha1_bin
 local concat = table.concat
-local unpack = unpack
 local setmetatable = setmetatable
 local error = error
 local tonumber = tonumber
@@ -35,9 +33,6 @@ end
 
 
 -- constants
-
-local STATE_CONNECTED = 1
-local STATE_COMMAND_SENT = 2
 
 local COM_QUIT = 0x01
 local COM_QUERY = 0x03
@@ -176,24 +171,6 @@ local function _dumphex(data)
 end
 
 
-local function _compute_token(password, scramble)
-    if password == "" then
-        return ""
-    end
-
-    local stage1 = sha1(password)
-    local stage2 = sha1(stage1)
-    local stage3 = sha1(scramble .. stage2)
-    local n = #stage1
-    local bytes = new_tab(n, 0)
-    for i = 1, n do
-         bytes[i] = strchar(bxor(strbyte(stage3, i), strbyte(stage1, i)))
-    end
-
-    return concat(bytes)
-end
-
-
 local function _from_length_coded_bin(data, pos)
     local first = strbyte(data, pos)
 
@@ -269,32 +246,6 @@ local function _parse_ok_packet(packet)
     --print("message: ", res.message, ", pos:", pos)
 
     return res
-end
-
-
-local function _parse_eof_packet(packet)
-    local pos = 2
-
-    local warning_count, pos = _get_byte2(packet, pos)
-    local status_flags = _get_byte2(packet, pos)
-
-    return warning_count, status_flags
-end
-
-
-local function _parse_err_packet(packet)
-    local errno, pos = _get_byte2(packet, 2)
-    local marker = sub(packet, pos, pos)
-    local sqlstate
-    if marker == '#' then
-        -- with sqlstate
-        pos = pos + 1
-        sqlstate = sub(packet, pos, pos + 5 - 1)
-        pos = pos + 5
-    end
-
-    local message = sub(packet, pos)
-    return errno, message, sqlstate
 end
 
 
@@ -536,6 +487,54 @@ local function query(cli, svr)
     cli.qry = qry
     send(svr, header .. packet)
 end
+
+
+local function process_columns(cli, svr, packet)
+    local field_count, extra = _parse_result_set_header_packet(packet)
+    local cols = new_tab(field_count, 0)
+    for i = 1, field_count do
+        header, packet, typ, err = from_svr(svr)
+        send(cli, header .. packet)
+        local col, err, errno, sqlstate = _parse_field_packet(packet)
+        cols[i] = col
+    end
+    return cols
+end
+
+
+local function process_rows(cli, svr, cols)
+    local rows = new_tab(4, 0)
+    local i = 0
+
+    while true do
+        header, packet, typ, err = from_svr(svr)
+        send(cli, header .. packet)
+        if typ == "EOF" then break end
+
+        local row = _parse_row_data_packet(packet, cols)
+        i = i + 1
+        rows[i] = row
+    end
+end
+
+
+local function process_resp(cli, svr)
+    local header, packet, typ, err = from_svr(svr)
+    send(cli, header .. packet)
+
+    if typ == "OK" then
+        local result = _parse_ok_packet(packet)
+        -- log result?
+    else
+        local cols = process_columns(cli, svr, packet)
+
+        -- An "EOF" packet to separate table header from body
+        header, packet, typ, err = from_svr(svr)
+        send(cli, header .. packet)
+
+        local rows = process_rows(cli, svr, cols)
+    end
+end
 -- }} proxy
 
 
@@ -544,29 +543,13 @@ local _M = {}
 
 function _M.peep()
     local svr, cli = init_proxy()
-    local header, packet, typ, err
+    local header, packet, typ, err, result
 
     while true do
         err = query(cli, svr)
+        print("query: ", cli.qry)
         if err then break end
-
-        local eof_cnt = 0  -- 0 => init; 1 => header; 2 => finished!
-        while eof_cnt < 2 do
-            header, packet, typ, err = from_svr(svr)
-            if typ == 'OK' then
-                send(cli, header .. packet)
-                break
-            elseif typ == 'EOF' then
-                send(cli, header .. packet)
-                eof_cnt = eof_cnt + 1
-            else
-                if header == nil then
-                    svr.sock:setkeepalive(1000 * 100)
-                    break
-                end
-                send(cli, header .. packet)
-            end
-        end
+        process_resp(cli, svr)
     end
 end
 
