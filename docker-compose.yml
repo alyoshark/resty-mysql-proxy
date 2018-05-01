@@ -1,3 +1,14 @@
+syslog:
+  image: mumblepins/syslog-ng-alpine
+  ports:
+    - "514:514"
+    - "601:601"
+    - "6514:6514"
+  volumes:
+    - "./syslog-ng/logs:/var/log/syslog-ng"
+    # - "./syslog-ng/socket:/var/run/syslog-ng"
+    # - "./syslog-ng/config/:/etc/syslog-ng"
+
 mysql:
   image: percona:5.7
   expose:
@@ -9,9 +20,10 @@ mysql:
     MYSQL_ROOT_PASSWORD: app
 
 web:
-  image: openresty/openresty:alpine
+  build: .
   links:
     - mysql:mysql
+    - syslog:syslog
   ports:
     - "6606:3306"
   volumes:
