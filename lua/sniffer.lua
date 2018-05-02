@@ -31,6 +31,27 @@ if not ok then
     new_tab = function (narr, nrec) return {} end
 end
 
+local mysql_ip = os.getenv("MYSQL_PORT_3306_TCP_ADDR")
+
+
+-- logger setup {{
+local logger = require "resty.logger.socket"
+local syslog_ip = os.getenv("SYSLOG_PORT_601_TCP_ADDR")
+
+if not logger.initted() then
+    local ok, err = logger.init{
+        host = syslog_ip,
+        port = 601,
+        flush_limit = 1234,
+        drop_limit = 5678,
+    }
+    if not ok then
+        ngx.log(ngx.ERR, "failed to initialize the logger: ", err)
+        return
+    end
+end
+-- }} logger setup
+
 
 -- constants
 
@@ -389,7 +410,6 @@ local function init_svr(svr)
     end
 
     svr._max_packet_size = 1024 * 1024 -- hardcode it to 1MB
-    local mysql_ip = os.getenv("MYSQL_PORT_3306_TCP_ADDR")
     sock:connect(mysql_ip, 3306)
 
     local header, packet, typ, err = from_svr(svr)
@@ -521,6 +541,7 @@ end
 local function process_resp(cli, svr)
     local header, packet, typ, err = from_svr(svr)
     send(cli, header .. packet)
+    logger.log("query: " .. packet)
 
     if typ == "OK" then
         local result = _parse_ok_packet(packet)
@@ -547,7 +568,9 @@ function _M.peep()
 
     while true do
         err = query(cli, svr)
-        print("query: ", cli.qry)
+        -- TODO: Don't know how to check the written log...
+        local slbytes, slerr = logger.log("query: " .. (cli.qry or ''))
+        print("written: ", slbytes, " err: ", slerr)
         if err then break end
         process_resp(cli, svr)
     end
