@@ -42,8 +42,8 @@ if not logger.initted() then
     local ok, err = logger.init{
         host = syslog_ip,
         port = 601,
-        flush_limit = 1234,
-        drop_limit = 5678,
+        -- flush_limit = 1234,
+        -- drop_limit = 5678,
     }
     if not ok then
         ngx.log(ngx.ERR, "failed to initialize the logger: ", err)
@@ -568,9 +568,8 @@ function _M.peep()
 
     while true do
         err = query(cli, svr)
-        -- TODO: Don't know how to check the written log...
-        local slbytes, slerr = logger.log("query: " .. (cli.qry or ''))
-        print("written: ", slbytes, " err: ", slerr)
+        logger.log("query: " .. (cli.qry or ''))
+        logger.flush()  -- Force flushing into log file XDD
         if err then break end
         process_resp(cli, svr)
     end
