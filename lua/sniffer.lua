@@ -50,23 +50,24 @@ if not logger.initted() then
         return
     end
 end
+
+
+local function logit(cli, logline, flush)
+    local content = concat({cli.username, ' from ', cli.ip, ' ', logline})
+    logger.log(content .. '\n')
+    if flush then logger.flush() end
+end
 -- }} logger setup
 
 
 -- constants
-
 local COM_QUIT = 0x01
 local COM_QUERY = 0x03
-local CLIENT_SSL = 0x0800
-
 local SERVER_MORE_RESULTS_EXISTS = 8
 
-
--- xch debugger:
-local function print(...)
-    ngx.log(ngx.ERR, ...)
-end
-
+local TYPE_OK = 0x00
+local TYPE_ERR = 0xff
+local TYPE_EOF = 0xfe
 
 -- 16MB - 1, the default max allowed packet size used by libmysqlclient
 local FULL_PACKET_SIZE = 16777215
@@ -126,76 +127,11 @@ local function _get_byte8(data, i)
     local lo = bor(a, lshift(b, 8), lshift(c, 16), lshift(d, 24))
     local hi = bor(e, lshift(f, 8), lshift(g, 16), lshift(h, 24))
     return lo + hi * 4294967296, i + 8
-
-    -- return bor(a, lshift(b, 8), lshift(c, 16), lshift(d, 24), lshift(e, 32),
-               -- lshift(f, 40), lshift(g, 48), lshift(h, 56)), i + 8
-end
-
-
-local function _set_byte2(n)
-    return strchar(band(n, 0xff), band(rshift(n, 8), 0xff))
-end
-
-
-local function _set_byte3(n)
-    return strchar(band(n, 0xff),
-                   band(rshift(n, 8), 0xff),
-                   band(rshift(n, 16), 0xff))
-end
-
-
-local function _set_byte4(n)
-    return strchar(band(n, 0xff),
-                   band(rshift(n, 8), 0xff),
-                   band(rshift(n, 16), 0xff),
-                   band(rshift(n, 24), 0xff))
-end
-
-
-local function _from_cstring(data, i)
-    local last = strfind(data, "\0", i, true)
-    if not last then
-        return nil, nil
-    end
-
-    return sub(data, i, last - 1), last + 1
-end
-
-
-local function _to_cstring(data)
-    return data .. "\0"
-end
-
-
-local function _to_binary_coded_string(data)
-    return strchar(#data) .. data
-end
-
-
-local function _dump(data)
-    local len = #data
-    local bytes = new_tab(len, 0)
-    for i = 1, len do
-        bytes[i] = format("%x", strbyte(data, i))
-    end
-    return concat(bytes, " ")
-end
-
-
-local function _dumphex(data)
-    local len = #data
-    local bytes = new_tab(len, 0)
-    for i = 1, len do
-        bytes[i] = tohex(strbyte(data, i), 2)
-    end
-    return concat(bytes, " ")
 end
 
 
 local function _from_length_coded_bin(data, pos)
     local first = strbyte(data, pos)
-
-    --print("LCB: first: ", first)
 
     if not first then
         return nil, pos
@@ -234,7 +170,6 @@ local function _from_length_coded_str(data, pos)
     if not len or len == null then
         return null, pos
     end
-
     return sub(data, pos, pos + len - 1), pos + len
 end
 
@@ -244,38 +179,21 @@ local function _parse_ok_packet(packet)
     local pos
 
     res.affected_rows, pos = _from_length_coded_bin(packet, 2)
-
-    --print("affected rows: ", res.affected_rows, ", pos:", pos)
-
     res.insert_id, pos = _from_length_coded_bin(packet, pos)
-
-    --print("insert id: ", res.insert_id, ", pos:", pos)
-
     res.server_status, pos = _get_byte2(packet, pos)
-
-    --print("server status: ", res.server_status, ", pos:", pos)
-
     res.warning_count, pos = _get_byte2(packet, pos)
-
-    --print("warning count: ", res.warning_count, ", pos: ", pos)
 
     local message = _from_length_coded_str(packet, pos)
     if message and message ~= null then
         res.message = message
     end
-
-    --print("message: ", res.message, ", pos:", pos)
-
     return res
 end
 
 
 local function _parse_result_set_header_packet(packet)
     local field_count, pos = _from_length_coded_bin(packet, 1)
-
-    local extra
-    extra = _from_length_coded_bin(packet, pos)
-
+    local extra = _from_length_coded_bin(packet, pos)
     return field_count, extra
 end
 
@@ -286,55 +204,30 @@ local function _parse_field_packet(data)
     local pos
     catalog, pos = _from_length_coded_str(data, 1)
 
-    --print("catalog: ", col.catalog, ", pos:", pos)
-
     db, pos = _from_length_coded_str(data, pos)
     table, pos = _from_length_coded_str(data, pos)
     orig_table, pos = _from_length_coded_str(data, pos)
     col.name, pos = _from_length_coded_str(data, pos)
 
     orig_name, pos = _from_length_coded_str(data, pos)
-
     pos = pos + 1 -- ignore the filler
-
     charsetnr, pos = _get_byte2(data, pos)
-
     length, pos = _get_byte4(data, pos)
-
     col.type = strbyte(data, pos)
-
-    --[[
-    pos = pos + 1
-    col.flags, pos = _get_byte2(data, pos)
-    col.decimals = strbyte(data, pos)
-    pos = pos + 1
-    local default = sub(data, pos + 2)
-    if default and default ~= "" then
-        col.default = default
-    end
-    --]]
-
     return col
 end
 
 
-local function _parse_row_data_packet(data, cols, compact)
+local function _parse_row_data_packet(data, cols)
     local pos = 1
     local ncols = #cols
-    local row
-    if compact then
-        row = new_tab(ncols, 0)
-    else
-        row = new_tab(0, ncols)
-    end
+    local row = new_tab(ncols, 0)
+
     for i = 1, ncols do
         local value
         value, pos = _from_length_coded_str(data, pos)
         local col = cols[i]
         local typ = col.type
-        local name = col.name
-
-        --print("row field value: ", value, ", type: ", typ)
 
         if value ~= null then
             local conv = converters[typ]
@@ -342,12 +235,7 @@ local function _parse_row_data_packet(data, cols, compact)
                 value = conv(value)
             end
         end
-
-        if compact then
-            row[i] = value
-        else
-            row[name] = value
-        end
+        row[i] = value
     end
 
     return row
@@ -387,19 +275,7 @@ local function from_svr(svr)
         return nil, nil, nil, "failed to read packet content: " .. err
     end
 
-    local field_count = strbyte(data, 1)
-    local typ
-    if field_count == 0x00 then
-        typ = "OK"
-    elseif field_count == 0xff then
-        typ = "ERR"
-    elseif field_count == 0xfe then
-        typ = "EOF"
-    else
-        typ = "DATA"
-    end
-
-    return header, data, typ, nil
+    return header, data, strbyte(data, 1), nil
 end
 
 
@@ -462,13 +338,17 @@ end
 local function get_username(cli, packet)
     local lstripped = strsub(packet, 33)
     local pos = strfind(lstripped, "\0")
-    cli.username = strsub(lstripped, 1, pos)
+    cli.username = strsub(lstripped, 1, pos - 1)
 end
 
 
-local function new_cli(sock)
+local function new_cli(sock, ip)
     -- downstream socket
-    return setmetatable({ sock = sock, _max_packet_size = 1024 * 1024 }, cli_mt)
+    return setmetatable({
+        ip = ip,
+        sock = sock,
+        _max_packet_size = 1024 * 1024,
+    }, cli_mt)
 end
 -- }} cli
 
@@ -477,12 +357,13 @@ end
 local function init_proxy()
     local svr = new_svr()
     local dss = assert(ngx.req.socket(true)) -- downstream socket
-    local cli = new_cli(dss)
+    local cli = new_cli(dss, ngx.var.remote_addr)
 
+    -- handshake and return svr, cli instances
     local header, packet, typ, err = init_svr(svr)
     send(cli, header .. packet)
 
-    header, packet, typ, err = from_cli(cli)
+    header, packet, err = from_cli(cli)
     get_username(cli, packet)
     send(svr, header .. packet)
 
@@ -529,7 +410,7 @@ local function process_rows(cli, svr, cols)
     while true do
         header, packet, typ, err = from_svr(svr)
         send(cli, header .. packet)
-        if typ == "EOF" then break end
+        if typ == TYPE_EOF then break end
 
         local row = _parse_row_data_packet(packet, cols)
         i = i + 1
@@ -541,9 +422,8 @@ end
 local function process_resp(cli, svr)
     local header, packet, typ, err = from_svr(svr)
     send(cli, header .. packet)
-    logger.log("query: " .. packet)
 
-    if typ == "OK" then
+    if typ == TYPE_OK then
         local result = _parse_ok_packet(packet)
         -- log result?
     else
@@ -564,15 +444,19 @@ local _M = {}
 
 function _M.peep()
     local svr, cli = init_proxy()
+    logit(cli, "connected", true)
     local header, packet, typ, err, result
 
     while true do
         err = query(cli, svr)
-        logger.log("query: " .. (cli.qry or ''))
-        logger.flush()  -- Force flushing into log file XDD
+        local qry = cli.qry
+        if qry then
+            logit(cli, "query: " .. cli.qry, true)
+        end
         if err then break end
         process_resp(cli, svr)
     end
+    logit(cli, "disconnected", true)
 end
 
 
