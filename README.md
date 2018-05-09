@@ -3,16 +3,14 @@
 **This is a work-in-progress**
 
 
-### File structure
+This project has largely copied (then trimmed) chunks of code from [`lua-resty-mysql`](https://github.com/openresty/lua-resty-mysql/blob/master/lib/resty/mysql.lua).
 
-In the `lua` folder, `mysql.lua` is shamelessly copied from [`lua-resty-mysql`](https://github.com/openresty/lua-resty-mysql/blob/master/lib/resty/mysql.lua), for my ease of reference during implementation.
-
-The code is _directly and largely copied_ into `sniffer.lua`, which supposedly holds:
+The *sniffer proxy* holds:
 
 - A socket to upstream MySQL connection
 - A socket to downstream client connection
 
-The intention is simply to receive from one socket and send the content to the other, with content parsed and logged.
+And it simply receives from one socket and sends the content to the other, with queries parsed and logged.
 
 
 ### To test run the proxy in Docker Compose
@@ -36,3 +34,8 @@ $ python
         db='app',
     )
 ```
+
+
+## TODO
+
+- Timeout handling
