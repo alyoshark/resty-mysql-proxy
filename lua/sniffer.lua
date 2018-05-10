@@ -1,14 +1,19 @@
 local tcp = ngx.socket.tcp
-local strbyte = string.byte
-local strfind = string.find
-local strsub = string.sub
 local concat = table.concat
 local setmetatable = setmetatable
 local error = error
 
+local strchar = string.char
+local strbyte = string.byte
+local strfind = string.find
+local strsub = string.sub
+
 local bit = require "bit"
 local bor = bit.bor
+local band = bit.band
+local bnot = bit.bnot
 local lshift = bit.lshift
+local rshift = bit.rshift
 
 if not ngx.config
    or not ngx.config.ngx_lua_version
@@ -55,6 +60,9 @@ local TYPE_OK = 0x00
 local TYPE_ERR = 0xff
 local TYPE_EOF = 0xfe
 
+local CAP_CLIENT_COMPRESS = 0x0020
+local CAP_CLIENT_SSH = 0x0800
+
 -- 16MB - 1, the default max allowed packet size used by libmysqlclient
 local FULL_PACKET_SIZE = 16777215
 
@@ -70,9 +78,29 @@ local function receive(wrapper, len)
 end
 
 
+local function _get_byte2(data, i)
+    local a, b = strbyte(data, i, i + 1)
+    return bor(a, lshift(b, 8)), i + 2
+end
+
+
 local function _get_byte3(data, i)
     local a, b, c = strbyte(data, i, i + 2)
     return bor(a, lshift(b, 8), lshift(c, 16)), i + 3
+end
+
+
+local function _set_byte2(n)
+    return strchar(band(n, 0xff), band(rshift(n, 8), 0xff))
+end
+
+
+local function _from_cstring(data, i)
+    local last = strfind(data, "\0", i, true)
+    if not last then
+        return nil, nil
+    end
+    return strsub(data, i, last - 1), last + 1
 end
 -- }} utils
 
@@ -122,6 +150,15 @@ local function init_svr(svr)
     sock:connect(mysql_ip, 3306)
 
     local header, packet, typ, err = from_svr(svr)
+    local server_version, pos = _from_cstring(packet, 2)
+    local pos = pos + 4 + 9  -- server_version | thread_id | filler
+    local precap = strsub(packet, 1, pos - 1)
+    local cap, pos = _get_byte2(packet, pos)
+    local postcap = strsub(packet, pos)
+
+    cap = band(cap, bnot(CAP_CLIENT_COMPRESS))
+    cap = band(cap, bnot(CAP_CLIENT_SSH))
+    packet = precap .. _set_byte2(cap) .. postcap
     return header, packet
 end
 
