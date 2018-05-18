@@ -23,6 +23,16 @@ then
 end
 
 local mysql_ip = os.getenv("MYSQL_PORT_3306_TCP_ADDR")
+local FULL_PACKET_SIZE = 16777215
+
+local function _dumphex(data)
+    local len = #data
+    local bytes = table.new(len, 0)
+    for i = 1, len do
+        bytes[i] = bit.tohex(strbyte(data, i), 2)
+    end
+    return concat(bytes, " ")
+end
 
 
 -- logger setup {{
@@ -54,6 +64,13 @@ end
 -- constants
 local COM_QUIT = 0x01
 local COM_QUERY = 0x03
+
+-- TODO:
+-- Client extended capabilities: Multi statements 1, Multi results 2, PS Multi results: 4
+-- When one of the flag is unset, MySQL server will return with header and body separated with an EOF
+-- BUT!!! I don't know which bit exactly is causing this behavior XDDDDDD
+local COM_MULTI = 0x07
+
 local SERVER_MORE_RESULTS_EXISTS = 8
 
 local TYPE_OK = 0x00
@@ -140,16 +157,7 @@ local function from_svr(svr)
 end
 
 
-local function init_svr(svr)
-    local sock = svr.sock
-    if not sock then
-        return nil, "svr not initialized"
-    end
-
-    svr._max_packet_size = 1024 * 1024 -- hardcode it to 1MB
-    sock:connect(mysql_ip, 3306)
-
-    local header, packet, typ, err = from_svr(svr)
+local function disable_ssl_and_compression(packet)
     local server_version, pos = _from_cstring(packet, 2)
     local pos = pos + 4 + 9  -- server_version | thread_id | filler
     local precap = strsub(packet, 1, pos - 1)
@@ -158,8 +166,21 @@ local function init_svr(svr)
 
     cap = band(cap, bnot(CAP_CLIENT_COMPRESS))
     cap = band(cap, bnot(CAP_CLIENT_SSH))
-    packet = precap .. _set_byte2(cap) .. postcap
-    return header, packet
+    return precap .. _set_byte2(cap) .. postcap
+end
+
+
+local function init_svr(svr)
+    local sock = svr.sock
+    if not sock then
+        return nil, "svr not initialized"
+    end
+
+    svr._max_packet_size = FULL_PACKET_SIZE
+    sock:connect(mysql_ip, 3306)
+
+    local header, packet, typ, err = from_svr(svr)
+    return header, disable_ssl_and_compression(packet)
 end
 
 
@@ -204,10 +225,15 @@ local function from_cli(cli)
 end
 
 
-local function get_username(cli, packet)
+local function get_multi_support(packet)
+    return band(strbyte(packet, 3), COM_MULTI) == COM_MULTI
+end
+
+
+local function get_username(packet)
     local lstripped = strsub(packet, 33)
     local pos = strfind(lstripped, "\0")
-    cli.username = strsub(lstripped, 1, pos - 1)
+    return strsub(lstripped, 1, pos - 1)
 end
 
 
@@ -216,7 +242,7 @@ local function new_cli(sock, ip)
     return setmetatable({
         ip = ip,
         sock = sock,
-        _max_packet_size = 1024 * 1024,
+        _max_packet_size = FULL_PACKET_SIZE,
     }, cli_mt)
 end
 -- }} cli
@@ -233,7 +259,8 @@ local function init_proxy()
     send(cli, header .. packet)
 
     header, packet, err = from_cli(cli)
-    get_username(cli, packet)
+    cli.username = get_username(packet)
+    cli.has_multi = get_multi_support(packet)
     send(svr, header .. packet)
 
     header, packet, typ, err = from_svr(svr)
@@ -269,10 +296,12 @@ local function process_resp(cli, svr)
             send(cli, header .. packet)
         until typ == TYPE_EOF
 
-        repeat
-            header, packet, typ, err = from_svr(svr)
-            send(cli, header .. packet)
-        until typ == TYPE_EOF
+        if not cli.has_multi then
+            repeat
+                header, packet, typ, err = from_svr(svr)
+                send(cli, header .. packet)
+            until typ == TYPE_EOF
+        end
     end
 end
 -- }} proxy
@@ -290,6 +319,7 @@ function _M.peep()
         err = query(cli, svr)
         local qry = cli.qry
         if qry then
+            ngx.log(ngx.ERR, "query: " .. cli.qry)
             logit(cli, "query: " .. cli.qry, true)
         end
         if err then break end

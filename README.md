@@ -39,5 +39,5 @@ $ python
 ## TODO
 
 - ~~MySQL commandline client login~~
-- MySQL commandline client query
-- Timeout handling
+- ~~MySQL commandline client query~~
+- Better timeout handling
