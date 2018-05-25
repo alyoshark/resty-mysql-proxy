@@ -17,6 +17,10 @@ local CAP_CLIENT_COMPRESS = 0x0020
 local CAP_CLIENT_SSH = 0x0800
 
 
+-- 16MB - 1, the default max allowed packet size used by libmysqlclient
+local FULL_PACKET_SIZE = 16777215
+
+
 local function _get_byte2(data, i)
     local a, b = strbyte(data, i, i + 1)
     return bor(a, lshift(b, 8)), i + 2
@@ -68,7 +72,7 @@ function M.read(conn)
         return nil, nil, "empty packet"
     end
 
-    if len > conn._max_packet_size then
+    if len > FULL_PACKET_SIZE then
         return nil, nil, "packet size too big: " .. len
     end
 

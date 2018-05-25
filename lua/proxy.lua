@@ -7,11 +7,7 @@ local wait = ngx.thread.wait
 local S = require("server")
 local C = require("client")
 
-local MYSQL_IP = os.getenv("MYSQL_PORT_3306_TCP_ADDR")
 local COM_QUIT = 0x01
-
-
-local M = { _VERSION = "0.01" }
 
 
 local function init(ip)
@@ -51,8 +47,11 @@ local function svr2cli(svr, cli)
 end
 
 
-function M.loop()
-    local svr, cli = init(MYSQL_IP)
+local M = { _VERSION = "0.01" }
+
+
+function M.loop(ip)
+    local svr, cli = init(ip)
     cli:log("connected", true)
 
     local c2s = spawn(cli2svr, cli, svr)

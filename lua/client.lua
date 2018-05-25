@@ -2,11 +2,9 @@ local setmetatable = setmetatable
 local concat = table.concat
 local strfind = string.find
 local strsub = string.sub
+local strgsub = string.gsub
 
 local U = require("utils")
-
--- 16MB - 1, the default max allowed packet size used by libmysqlclient
-local FULL_PACKET_SIZE = 16777215
 
 
 -- logger setup {{
@@ -28,41 +26,38 @@ end
 -- }} logger setup
 
 
-local _mt = { __index = {} }
 local M = {}
 
-local function log(cli, logline, flush)
-    local content = concat({cli.username, ' from ', cli.ip, ' ', logline})
-    logger.log(content .. '\n')
+function M:log(logline, flush)
+    if strfind(logline, "\n") then
+        logline = strgsub(logline, "\n", " ")
+    end
+    local content = concat({self.username, " from ", self.ip, " ", logline})
+    logger.log(content .. "\n")
     if flush then logger.flush() end
 end
 
 
-local function set_username(cli, packet)
+function M:set_username(packet)
     local lstripped = strsub(packet, 33)
     local pos = strfind(lstripped, "\0")
-    cli.username = strsub(lstripped, 1, pos - 1)
+    self.username = strsub(lstripped, 1, pos - 1)
 end
 
 
-local function init(cli, svr)
-    header, packet, err = cli:read()
-    cli:set_username(packet)
+function M:init(svr)
+    header, packet, err = self:read()
+    self:set_username(packet)
     svr:write(header .. packet)
 end
 
 
 function M.new(sock, ip)
-    -- downstream socket
     return setmetatable({
         ip = ip, sock = sock,
-        _max_packet_size = FULL_PACKET_SIZE,
-        init = init,
-        log = log,
-        set_username = set_username,
         read = U.read,
         write = U.write,
-    }, _mt)
+    }, { __index = M })
 end
 
 
