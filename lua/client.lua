@@ -5,26 +5,7 @@ local strsub = string.sub
 local strgsub = string.gsub
 
 local U = require("utils")
-
-
--- logger setup {{
-local logger = require "resty.logger.socket"
-local syslog_ip = os.getenv("SYSLOG_PORT_601_TCP_ADDR")
-
-if not logger.initted() then
-    local ok, err = logger.init{
-        host = syslog_ip,
-        port = 601,
-        -- flush_limit = 1234,
-        -- drop_limit = 5678,
-    }
-    if not ok then
-        ngx.log(ngx.ERR, "failed to initialize the logger: ", err)
-        return
-    end
-end
--- }} logger setup
-
+local logger = require("logger")
 
 local M = {}
 

@@ -1,5 +1,4 @@
 syslog:
-  # image: mumblepins/syslog-ng-alpine
   image: balabit/syslog-ng
   expose:
     - "514"
@@ -12,6 +11,8 @@ syslog:
   volumes:
     - ./syslog-ng/logs:/var/log/syslog-ng
     - ./syslog-ng/syslog-ng.conf:/etc/syslog-ng/syslog-ng.conf
+  command:
+    - '--no-caps'
 
 mysql:
   image: percona:5.7
