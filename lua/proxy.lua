@@ -10,9 +10,10 @@ local C = require("client")
 local COM_QUIT = 0x01
 
 
-local function init(ip)
-    local svr = S.new(ip)
-    local cli = C.new(ngx.req.socket(true), ngx.var.remote_addr)
+local function init(ip, port)
+    local svr = S.new(ip, port)
+    local conn = ip .. ":" .. port
+    local cli = C.new(ngx.req.socket(true), ngx.var.remote_addr, conn)
     svr:init(cli)
     cli:init(svr)
 
@@ -32,7 +33,7 @@ local function cli2svr(cli, svr)
             svr:write(header .. packet)
             return
         end
-        cli:log("query " .. qry, true)
+        cli:log("query|" .. qry, true)
         svr:write(header .. packet)
     end
 end
@@ -50,8 +51,8 @@ end
 local M = { _VERSION = "0.01" }
 
 
-function M.loop(ip)
-    local svr, cli = init(ip)
+function M.loop(ip, port)
+    local svr, cli = init(ip, tonumber(port))
     cli:log("connected", true)
 
     local c2s = spawn(cli2svr, cli, svr)

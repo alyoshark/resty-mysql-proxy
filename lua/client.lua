@@ -2,7 +2,7 @@ local setmetatable = setmetatable
 local concat = table.concat
 local strfind = string.find
 local strsub = string.sub
-local strgsub = string.gsub
+local strgsub = ngx.re.gsub
 
 local U = require("utils")
 local logger = require("logger")
@@ -13,7 +13,8 @@ function M:log(logline, flush)
     if strfind(logline, "\n") then
         logline = strgsub(logline, "\n", " ")
     end
-    local content = concat({self.username, " from ", self.ip, " ", logline})
+    -- TODO: Why does syslog-ng discard the first word?!
+    local content = "* " .. concat({self.username, self.ip, self.conn, logline}, "|")
     logger.log(content .. "\n")
     if flush then logger.flush() end
 end
@@ -35,9 +36,9 @@ function M:init(svr, read_timeout)
 end
 
 
-function M.new(sock, ip)
+function M.new(sock, ip, conn)
     return setmetatable({
-        ip = ip, sock = sock,
+        ip = ip, conn = conn, sock = sock,
         read = U.read,
         write = U.write,
     }, { __index = M })
