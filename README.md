@@ -2,6 +2,7 @@
 
 **This is a work-in-progress**
 
+Here is the [installation guide](https://github.com/xch91/resty-mysql-proxy/blob/master/INSTALL.md)
 
 This project has largely copied (then trimmed) chunks of code from [`lua-resty-mysql`](https://github.com/openresty/lua-resty-mysql/blob/master/lib/resty/mysql.lua).
 
@@ -17,22 +18,14 @@ And it simply receives from one socket and sends the content to the other, with 
 
 - Start docker-compose in a terminal to see the logs:
 
-```
+```bash
 $ docker-compose up
 ```
 
-- I personally use python's pymysql to connect to the dockerized MySQL instance:
+- Test connection
 
-```
-$ python
->>> import pymysql
->>> conn = pymysql.connect(
-        host='0.0.0.0',
-        port=3306,
-        user='root',
-        password='app',
-        db='app',
-    )
+```bash
+mysql -h0.0.0.0 -P6606 -uroot -papp app
 ```
 
 
@@ -40,4 +33,4 @@ $ python
 
 - ~~MySQL commandline client login~~
 - ~~MySQL commandline client query~~
-- Better timeout handling
+- Better timeout handling (it's now naively one hour)
