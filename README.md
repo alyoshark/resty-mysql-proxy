@@ -34,3 +34,4 @@ mysql -h0.0.0.0 -P6606 -uroot -papp app
 - ~~MySQL commandline client login~~
 - ~~MySQL commandline client query~~
 - Better timeout handling (it's now naively one hour)
+- Better syslog-ng setup (I don't know if it rotates)
