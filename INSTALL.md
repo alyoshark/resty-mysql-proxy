@@ -40,6 +40,7 @@ $ curl -L -o /usr/local/openresty/lualib/resty/logger/socket.lua \
 # Backup origin config
 $ mv /usr/local/openresty/nginx/conf/nginx.conf{,.backup}
 $ cp ./nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+$ cp -r ./lua /usr/local/openresty/nginx/
 ```
 
 ## Write a syslog-ng configuration
