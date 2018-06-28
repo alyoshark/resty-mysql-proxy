@@ -1,5 +1,6 @@
 local strbyte = string.byte
 local strsub = string.sub
+local concat = table.concat
 
 local spawn = ngx.thread.spawn
 local wait = ngx.thread.wait
@@ -10,9 +11,9 @@ local C = require("client")
 local COM_QUIT = 0x01
 
 
-local function init(ip, port)
+local function init(ip, port, proxy_port)
     local svr = S.new(ip, port)
-    local conn = ip .. ":" .. port
+    local conn = concat({ip, port, proxy_port or "-"}, ":")
     local cli = C.new(ngx.req.socket(true), ngx.var.remote_addr, conn)
     svr:init(cli)
     cli:init(svr)
@@ -51,8 +52,8 @@ end
 local M = { _VERSION = "0.01" }
 
 
-function M.loop(ip, port)
-    local svr, cli = init(ip, tonumber(port))
+function M.loop(ip, port, proxy_port)
+    local svr, cli = init(ip, tonumber(port), proxy_port)
     cli:log("connected", true)
 
     local c2s = spawn(cli2svr, cli, svr)

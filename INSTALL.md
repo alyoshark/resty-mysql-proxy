@@ -1,5 +1,13 @@
 # Installation Guide
 
+## Clone the repo and cd into the directory!!!
+
+```bash
+$ cd /tmp
+$ git clone https://github.com/xch91/resty-mysql-proxy.git
+$ cd resty-mysql-proxy
+```
+
 ## Install OpenResty
 
 It is suggested to use OpenResty official build per described [here](https://openresty.org/en/linux-packages.html).
@@ -9,6 +17,9 @@ Which is essentially the following steps:
 $ yum install yum-utils
 $ yum-config-manager --add-repo https://openresty.org/package/centos/openresty.repo
 $ yum install openresty
+
+# Strongly recommended - symbolically link config files:
+$ ln -s /usr/local/openresty/nginx/conf /etc/openresty
 ```
 
 ## Install syslog-ng
@@ -30,6 +41,7 @@ Being a playful hipster, I use the code from master branch in this source;
 but for stability concerns, a tagged version of lua code could be used instead.
 
 ```bash
+$ mkdir -p /usr/local/openresty/lualib/resty/logger
 $ curl -L -o /usr/local/openresty/lualib/resty/logger/socket.lua \
           https://raw.githubusercontent.com/cloudflare/lua-resty-logger-socket/master/lib/resty/logger/socket.lua
 ```
@@ -40,6 +52,7 @@ $ curl -L -o /usr/local/openresty/lualib/resty/logger/socket.lua \
 # Backup origin config
 $ mv /usr/local/openresty/nginx/conf/nginx.conf{,.backup}
 $ cp ./nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+$ cp -r ./proxy.d /usr/local/openresty/nginx/conf/
 $ cp -r ./lua /usr/local/openresty/nginx/
 ```
 
@@ -60,7 +73,7 @@ destination d_mysql {
     file(
         "/var/log/mysql-proxy/access.log"
         template("${MESSAGE}\n")
-    )
+    );
 };
 
 log {
@@ -72,16 +85,24 @@ log {
 ## Enable & Start syslog-ng
 
 ```bash
+$ mkdir -p /var/log/mysql-proxy
 $ systemctl enable syslog-ng
 $ systemctl start syslog-ng
 ```
 
 ## Config DB server and syslog-ng IP & ports
 
-In `/usr/local/openresty/nginx/conf/nginx.conf`, line 25 & 26 config syslog-ng IP and port,
-line 30 determines the proxy port to open, line 33 configs DB server IP and port.
+In `/usr/local/openresty/nginx/conf/nginx.conf` (if symbolically linked to `/etc` as
+suggested above, it would be `/etc/openresty/nginx.conf`) line 25 & 26 define
+syslog-ng IP and port.
 
-A new proxy port could be added by adding a new server block.
+A new proxy port could be added by creating a new `*.conf` file containing a server block
+per demonstrated in `/usr/local/openresty/nginx/conf/proxy.d/demo.conf`. The 3 parameters
+passed to `loop` function are:
+
+1. The DB instance server IP, **required**
+2. The DB instance port, **required**
+3. The proxy port, same as defined in `listen` directive, optional
 
 ## Enable & Start OpenResty
 
