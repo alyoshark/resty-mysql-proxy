@@ -1,6 +1,6 @@
 # Installation Guide
 
-## Clone the repo and cd into the directory!!!
+## Clone the repo and `cd` into the directory!!!
 
 ```bash
 $ cd /tmp
@@ -30,7 +30,9 @@ Which is essentially the following steps:
 
 ```bash
 $ curl https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm | rpm -Uvh -
-$ cd /etc/yum.repos.d && curl -O https://copr.fedorainfracloud.org/coprs/czanik/syslog-ng314/repo/epel-7/czanik-syslog-ng314-epel-7.repo
+# If the key installation throws a warning or failed, try download the file and install with rpm -Uvh {filename} explicitly
+
+$ cd /etc/yum.repos.d && curl https://copr.fedorainfracloud.org/coprs/czanik/syslog-ng314/repo/epel-7/czanik-syslog-ng314-epel-7.repo -O && cd -
 $ yum install syslog-ng
 ```
 

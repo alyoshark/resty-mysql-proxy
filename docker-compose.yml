@@ -33,4 +33,5 @@ web:
     - "6606:3306"
   volumes:
     - ./nginx.conf:/usr/local/openresty/nginx/conf/nginx.conf
+    - ./proxy.d:/usr/local/openresty/nginx/conf/proxy.d
     - ./lua:/usr/local/openresty/nginx/lua
