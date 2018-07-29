@@ -18,7 +18,7 @@ local function init(ip, port, proxy_port)
     svr:init(cli)
     cli:init(svr)
 
-    header, packet, typ, err = svr:read()
+    local header, packet, typ, err = svr:read()
     cli:write(header .. packet)
     return svr, cli
 end
@@ -28,12 +28,12 @@ local function cli2svr(cli, svr)
     while true do
         local header, packet, err = cli:read()
         if not header then return err end
-        local qry = strsub(packet, 1, #packet)
         local com = strbyte(packet)
         if com == COM_QUIT then
             svr:write(header .. packet)
             return
         end
+        local qry = strsub(packet, 1, #packet)
         cli:log("query|" .. qry, true)
         svr:write(header .. packet)
     end
@@ -42,7 +42,7 @@ end
 
 local function svr2cli(svr, cli)
     while true do
-        header, packet, err = svr:read()
+        local header, packet, err = svr:read()
         if not header then return err end
         cli:write(header .. packet)
     end

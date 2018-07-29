@@ -28,7 +28,7 @@ end
 
 
 function M:init(svr, read_timeout)
-    header, packet, err = self:read()
+    local header, packet, err = self:read()
     read_timeout = read_timeout or 3600
     self.sock:settimeouts(10 * 1000, 60 * 1000, read_timeout * 1000)
     self:set_username(packet)
